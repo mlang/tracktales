@@ -4,6 +4,7 @@ from jinja2 import Environment, ChoiceLoader, FileSystemLoader, PackageLoader
 import logging
 from mpd import MPDClient
 from mutagen.flac import FLAC, Picture
+from mutagen.id3 import PictureType
 from openai import OpenAI
 import os
 import requests
@@ -80,14 +81,39 @@ def image_url(image):
     }
 
 
+def picture(image):
+    p = Picture()
+    p.data = image.make_blob()
+    p.type = PictureType.OTHER
+    p.mime = image.mimetype
+    p.width = image.width
+    p.height = image.height
+    p.depth = image.depth
+
+    return p
+
+
 def mpd_insert(file):
     subprocess.run(["mpc", "insert", file], check=True)
     logging.info(f"Inserted {file}")
     # id = mpd.addid(file)
     # mpd.prioid(min(mpd.currentsong().get('prio', 0) + 1, 255), id)
 
+expander = {
+    "attacks": 0,
+    "points": "|".join([
+        "-80/-169",
+        "-54/-80",
+        "-49.5/-64.6",
+        "-41.1/-41.1",
+        "-25.8/-15",
+        "-10.8/-4.5",
+        "0/0",
+        "20/8.3"
+    ])
+}
 
-def speech(text, time, title,
+def speech(text, time, title, images,
            volume=2.0, padding=1,
            model="tts-1-hd", voice="nova", speed=1.23
           ):
@@ -97,21 +123,17 @@ def speech(text, time, title,
         music_directory, clips_directory, f"{voice}-{timestamp}.{format}"
     )
     response = openai.audio.speech.create(
-        input=text, speed=speed, model=model, voice=voice, response_format=format
+        input=text, speed=speed, model=model, voice=voice,
+        response_format=format
     )
     logging.info("Adjusting audio")
-    (
-        ffmpeg.input("pipe:", f=format)
-        .filter("volume", volume)
-        .filter(
-            "compand",
-            attacks=0,
-            points="-80/-169|-54/-80|-49.5/-64.6|-41.1/-41.1|-25.8/-15|-10.8/-4.5|0/0|20/8.3",
-        )
-        .filter("adelay", str(padding) + "s", all=True)
-        .filter("apad", pad_dur=padding)
-        .output(filename)
-        .run(input=response.read(), quiet=True, overwrite_output=True)
+    (ffmpeg.input("pipe:", f=format)
+           .filter("volume", volume)
+           .filter("compand", **expander)
+           .filter("adelay", f"{padding}s", all=True)
+           .filter("apad", pad_dur=padding)
+           .output(filename)
+           .run(input=response.read(), quiet=True, overwrite_output=True)
     )
 
     tags = FLAC(filename)
@@ -121,14 +143,17 @@ def speech(text, time, title,
     tags["voice"] = voice
     tags["speed"] = speed
     tags["text"] = text
+    for image in images:
+        tags.add_picture(picture(image))
     tags.save()
 
+    clip = os.path.relpath(filename, music_directory)
     logging.info("Updating MPD database...")
-    job = mpd.update(clips_directory)
+    job = mpd.update(clip)
     while mpd.status().get("updating_db") == job:
         sleep(1)
 
-    mpd_insert(os.path.relpath(filename, music_directory))
+    mpd_insert(clip)
 
 
 def clean_info(info):
@@ -154,7 +179,9 @@ def generate(date, prev, next, padding):
     global messages
     global prompt_tokens, completion_tokens
 
-    image = next.get("picture", next.get("albumart"))
+    start = datetime.now()
+
+    images = list(filter(None, [next.get("albumart"), next.get("picture")]))
     env = {
         "date": date,
         "previous": clean_info(prev),
@@ -164,9 +191,13 @@ def generate(date, prev, next, padding):
     env.update(sensors.env())
 
     content = [{"type": "text", "text": template("song.txt").render(env)}]
-    if image is not None:
-        content.append(image_url(image))
-    logging.info(content[0]['text'])
+    content.extend(map(image_url, images))
+
+    log = "MODEL INPUT\n" + content[0]['text']
+    for image in images:
+        log += "\n" + str(image)
+    logging.info(log)
+
     messages.append({"role": "user", "content": content})
 
     int_handler = signal(SIGINT, ctrl_c)
@@ -179,10 +210,7 @@ def generate(date, prev, next, padding):
 
     message = result.choices[0].message
     messages.append(message)
-    speech(
-        message.content,
-        date,
-        track_info(env["next"]),
+    speech(message.content, date, track_info(env["next"]), images,
         padding=padding,
         model=config.vars.get("tts-model", "tts-1-hd"),
         voice=config.vars.get("voice", "nova"),
@@ -194,6 +222,9 @@ def generate(date, prev, next, padding):
 
     if result.usage.prompt_tokens > int(config.vars.get("max-prompt-tokens")):
         messages = [system_prompt()]
+
+    consumed = datetime.now() - start
+    logging.info(f"Took {consumed.seconds}s")
 
     signal(SIGINT, int_handler)
 
@@ -213,6 +244,7 @@ def try_generate():
                 if remaining >= int(config.vars.get("min-remaining-seconds")):
                     date = datetime.now() + timedelta(seconds=remaining)
                     padding = int(status.get("xfade", "0"))
+                    padding -= padding // 5
 
                     try:
                         next["albumart"] = Image(
@@ -227,7 +259,10 @@ def try_generate():
                     except:
                         pass
 
-                    generate(date, prev, next, padding)
+                    if (not config.vars.getboolean('image-required')
+                        or ("albumart" in next or "picture" in next)
+                       ):
+                        generate(date, prev, next, padding)
                 else:
                     logging.info("Not enough time, not generating speech.")
 

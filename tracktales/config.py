@@ -17,6 +17,7 @@ config = ConfigParser(
         "min-remaining-seconds": 120,
         "mpd-socket": "/run/mpd/socket",
         "personality": "nova",
+        "image-required": False
     }
 )
 

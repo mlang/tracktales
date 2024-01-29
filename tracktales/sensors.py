@@ -79,8 +79,10 @@ def weather():
         del result["main"]
         main.update(result)
 
-        main["temp"] = int(main["temp"])
-        main["phenomena"] = list(map(lambda x: x["description"], main["weather"]))
+        main["temp"] = round(main["temp"])
+        main["phenomena"] = list(
+            map(lambda x: x["description"], main["weather"])
+        )
         del main["weather"]
         main["uv-index"] = requests.get(
             "https://api.openweathermap.org/data/2.5/uvi",

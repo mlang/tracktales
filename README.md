@@ -35,6 +35,7 @@ openai-api-key = sk-<REDACTED>
 openweathermap-api-key = <REDACTED>
 station = Radio Mario
 max-tokens = 777
+image-required = no
 language = Austrian German
 location = Graz
 region = Austria
@@ -53,6 +54,8 @@ name = Nova
 `clips-directory` is a subdirectory of the MPD `music_directory` and needs to be writable by the user who is running TrackTales.
 
 `max-prompt-tokens` is the upper limit of the context.  If a request requires more then this amount of prompt tokens, the context is reset to the system prompt.
+
+If `image-required` is on, tracktales will only generate a track announcements if visual artwork was found. Depending on your music collection, setting this can help to reduce anoyance and costs.
 
 ### Advanced
 
