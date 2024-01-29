@@ -57,14 +57,20 @@ def celestial_events():
         return {}
 
 
+def owm_params():
+    return {
+        "lat": config.vars.get('latitude'),
+        "lon": config.vars.get('longitude'),
+        "units": "metric",
+        "appid": config.vars.get('openweathermap-api-key', "1f68a06a8735f02c7dd2e52f8a60a9fe")
+    }
+
+
 def weather():
-    if (
-        "latitude" in config.vars
-        and "longitude" in config.vars
-        and "openweathermap-api-key" in config.vars
-    ):
+    if "latitude" in config.vars and "longitude" in config.vars:
         result = requests.get(
-            f"https://api.openweathermap.org/data/2.5/weather?lat={config.vars.get('latitude')}&lon={config.vars.get('longitude')}&units=metric&appid={config.vars.get('openweathermap-api-key')}"
+            "https://api.openweathermap.org/data/2.5/weather",
+            params=owm_params()
         ).json()
         for key in ("coord", "base", "sys", "dt", "timezone", "id", "name", "cod"):
             del result[key]
@@ -77,7 +83,8 @@ def weather():
         main["phenomena"] = list(map(lambda x: x["description"], main["weather"]))
         del main["weather"]
         main["uv-index"] = requests.get(
-            f"https://api.openweathermap.org/data/2.5/uvi?lat={config.vars.get('latitude')}&lon={config.vars.get('longitude')}&units=metric&appid={config.vars.get('openweathermap-api-key')}"
+            "https://api.openweathermap.org/data/2.5/uvi",
+            params=owm_params()
         ).json()["value"]
 
         return {"weather": main}
