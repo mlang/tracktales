@@ -38,8 +38,10 @@ def celestial_events():
             ("midnight", midnight(observer, date=tomorrow, tzinfo=location.timezone)),
         ]
         now = datetime.now(tz=ZoneInfo(key=location.timezone))
+        def is_ok(x):
+            return (x is not None and x >= now)
         events = sorted(
-            ((label, time) for (label, time) in events if time >= now),
+            ((label, time) for (label, time) in events if is_ok(time)),
             key=lambda x: x[1],
         )[:8]
         return {
